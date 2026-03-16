@@ -7,6 +7,7 @@
 
 → **[Open the live visualizer](https://moezusb.github.io/yield-curve-monitor)**
 
+![preview](preview.png)
 ---
 
 ## What it does
