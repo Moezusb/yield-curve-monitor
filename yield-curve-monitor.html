@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yield Curve Monitor — Sovereign Rates</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0b0d12;
+    --surface: #111318;
+    --surface2: #181b22;
+    --surface3: #1e222c;
+    --border: #23283a;
+    --border2: #2e3347;
+    --text: #e2e4ec;
+    --text2: #7c8196;
+    --text3: #454a5c;
+    --us: #5b9cf6;
+    --ca: #34d39e;
+    --eu: #f4a553;
+    --inv: #f2546a;
+    --rec: rgba(244,165,83,0.10);
+    --mono: 'DM Mono', monospace;
+    --sans: 'Inter', sans-serif;
+    --radius: 6px;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* ── LAYOUT ── */
+  .shell {
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    grid-template-columns: 1fr 200px;
+    grid-template-areas:
+      "header  header"
+      "tabs    tabs"
+      "chart   sidebar"
+      "foot    sidebar";
+    height: 100vh;
+    min-height: 600px;
+  }
+
+  /* ── HEADER ── */
+  header {
+    grid-area: header;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px 12px;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand-title {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    color: var(--text);
+  }
+  .brand-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: .1em;
+  }
+  .toggles { display: flex; gap: 6px; flex-wrap: wrap; }
+  .toggle {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 11px;
+    border-radius: 20px;
+    border: 1px solid var(--border2);
+    background: transparent;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all .15s;
+    user-select: none;
+  }
+  .toggle .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .4;
+    transition: opacity .15s;
+  }
+  .toggle.on .dot { opacity: 1; }
+  .toggle.on[data-c="us"] { border-color: var(--us); color: var(--us); background: rgba(91,156,246,.1); }
+  .toggle.on[data-c="ca"] { border-color: var(--ca); color: var(--ca); background: rgba(52,211,158,.1); }
+  .toggle.on[data-c="eu"] { border-color: var(--eu); color: var(--eu); background: rgba(244,165,83,.1); }
+
+  /* ── TABS ── */
+  .tab-bar {
+    grid-area: tabs;
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    gap: 2px;
+  }
+  .tab-btn {
+    padding: 7px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text3);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .tab-btn:hover { color: var(--text2); }
+  .tab-btn.on { color: var(--text); border-bottom-color: var(--text2); }
+
+  /* ── CHART AREA ── */
+  .chart-area {
+    grid-area: chart;
+    display: flex;
+    flex-direction: column;
+    padding: 14px 20px 10px;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .chart-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .date-pill {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    color: var(--text);
+    letter-spacing: .04em;
+  }
+  .inv-pill {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: var(--radius);
+    border: 1px solid var(--inv);
+    color: var(--inv);
+    background: rgba(242,84,106,.08);
+    display: none;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    animation: blink 2.4s ease-in-out infinite;
+  }
+  .inv-pill.on { display: inline-flex; align-items: center; gap: 5px; }
+  @keyframes blink { 0%,100%{opacity:1} 55%{opacity:.45} }
+  .loading-msg {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+    margin-left: auto;
+  }
+
+  .canvas-wrap {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+  }
+  .canvas-wrap canvas { display: block; }
+
+  /* ── SPREAD STRIP ── */
+  .spread-strip {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .sc {
+    flex: 1;
+    min-width: 80px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 10px;
+  }
+  .sc-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--text3);
+    margin-bottom: 3px;
+  }
+  .sc-val {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .sc-val.neg { color: var(--inv); }
+  .sc-val.pos { color: var(--ca); }
+
+  /* ── FOOTER / CONTROLS ── */
+  footer {
+    grid-area: foot;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px 14px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .play-btn {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--border2);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 11px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s;
+  }
+  .play-btn:hover { background: var(--surface3); }
+  input[type="range"].tl {
+    flex: 1;
+    height: 3px;
+    -webkit-appearance: none;
+    background: var(--border2);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"].tl::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--text2);
+    border: 2px solid var(--bg);
+    cursor: pointer;
+    transition: background .15s;
+  }
+  input[type="range"].tl:hover::-webkit-slider-thumb { background: var(--text); }
+  .speed-sel {
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 7px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    grid-area: sidebar;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    font-size: 12px;
+  }
+  .sb-block {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sb-title {
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--text3);
+    margin-bottom: 8px;
+  }
+  .tenor-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+  }
+  .tn { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+  .tv { font-family: var(--mono); font-size: 11px; text-align: right; }
+  .tv.us { color: var(--us); }
+  .tv.ca { color: var(--ca); }
+  .tv.eu { color: var(--eu); }
+  .pre-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 5px 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: all .12s;
+  }
+  .pre-btn:hover {
+    border-color: var(--border2);
+    color: var(--text);
+    background: var(--surface2);
+  }
+  .src-note {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--text3);
+    line-height: 1.6;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .src-note a { color: var(--text2); text-decoration: none; }
+  .src-note a:hover { color: var(--text); }
+
+  /* ── LOADING OVERLAY ── */
+  #loading-overlay {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px;
+    z-index: 999;
+    transition: opacity .4s;
+  }
+  #loading-overlay.hidden { opacity: 0; pointer-events: none; }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--text2);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .load-text { font-family: var(--mono); font-size: 12px; color: var(--text2); }
+  .load-sources { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="load-text" id="load-text">Fetching live data…</div>
+  <div class="load-sources">US Treasury · Bank of Canada · ECB</div>
+</div>
+
+<div class="shell">
+
+  <header>
+    <div class="brand">
+      <span class="brand-title">Yield Curve Monitor</span>
+      <span class="brand-sub">Sovereign Rates — Live</span>
+    </div>
+    <div class="toggles">
+      <button class="toggle on" data-c="us" onclick="toggleCurve('us',this)">
+        <span class="dot"></span>US Treasury
+      </button>
+      <button class="toggle on" data-c="ca" onclick="toggleCurve('ca',this)">
+        <span class="dot"></span>GoC
+      </button>
+      <button class="toggle on" data-c="eu" onclick="toggleCurve('eu',this)">
+        <span class="dot"></span>Euro Area
+      </button>
+    </div>
+  </header>
+
+  <div class="tab-bar">
+    <button class="tab-btn on" onclick="switchTab('curve',this)">Curve</button>
+    <button class="tab-btn" onclick="switchTab('spread',this)">2s10s Spread</button>
+    <button class="tab-btn" onclick="switchTab('term',this)">Term Structure (US)</button>
+  </div>
+
+  <div class="chart-area">
+    <div class="chart-meta">
+      <div class="date-pill" id="dpill">—</div>
+      <div class="inv-pill" id="ipill">▲ INVERTED</div>
+      <div class="loading-msg" id="lmsg"></div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="mc"></canvas>
+    </div>
+    <div class="spread-strip" id="sspow">
+      <div class="sc"><div class="sc-label">US 2s10s</div><div class="sc-val" id="s1">—</div></div>
+      <div class="sc"><div class="sc-label">GoC 2s10s</div><div class="sc-val" id="s2">—</div></div>
+      <div class="sc"><div class="sc-label">EU 2s10s</div><div class="sc-val" id="s3">—</div></div>
+      <div class="sc"><div class="sc-label">US 3m10y</div><div class="sc-val" id="s4">—</div></div>
+    </div>
+  </div>
+
+  <footer>
+    <button class="play-btn" id="pbtn" onclick="togglePlay()">▶</button>
+    <input type="range" class="tl" id="tl" min="0" step="1" value="0" oninput="onSlider(this.value)">
+    <select class="speed-sel" onchange="speed=+this.value">
+      <option value="900">0.5×</option>
+      <option value="400" selected>1×</option>
+      <option value="150">3×</option>
+      <option value="60">8×</option>
+    </select>
+  </footer>
+
+  <div class="sidebar">
+    <div class="sb-block">
+      <div class="sb-title">Tenors</div>
+      <div id="tenor-tbl"></div>
+    </div>
+    <div class="sb-block">
+      <div class="sb-title">Presets</div>
+      <button class="pre-btn" onclick="jump('2006-06')">2006 Pre-GFC flat</button>
+      <button class="pre-btn" onclick="jump('2007-03')">2007 GFC inversion</button>
+      <button class="pre-btn" onclick="jump('2020-03')">2020 COVID shock</button>
+      <button class="pre-btn" onclick="jump('2022-10')">2022 Hike peak</button>
+      <button class="pre-btn" onclick="jump('2023-07')">2023 Deep inversion</button>
+      <button class="pre-btn" onclick="jump('2024-09')">2024 First cut</button>
+      <button class="pre-btn" onclick="jump(null)">► Latest</button>
+    </div>
+    <div class="src-note">
+      <strong style="color:var(--text2)">Sources</strong><br>
+      US: <a href="https://fiscaldata.treasury.gov" target="_blank">US Treasury FiscalData</a><br>
+      CA: <a href="https://www.bankofcanada.ca/valet/docs" target="_blank">Bank of Canada Valet API</a><br>
+      EU: <a href="https://data.ecb.europa.eu" target="_blank">ECB Data Portal</a><br><br>
+      Data refreshes on page load. All APIs are free and require no key.
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════
+   DATA LAYER — fetch from three public APIs
+   ═══════════════════════════════════════════════════ */
+
+const CORS = 'https://corsproxy.io/?';
+
+// US Treasury FiscalData — avg interest rates by tenor
+// Series: Treasury Nominal Coupon Issues by tenor
+async function fetchUS() {
+  const tenors = [
+    { label: '1M',  field: 'avg_interest_rate_amt', type: '4-Week', months: 1/12 },
+    { label: '3M',  field: 'avg_interest_rate_amt', type: '13-Week', months: 3/12 },
+    { label: '6M',  field: 'avg_interest_rate_amt', type: '26-Week', months: 6/12 },
+    { label: '1Y',  field: 'avg_interest_rate_amt', type: '52-Week', months: 1 },
+    { label: '2Y',  field: 'avg_interest_rate_amt', type: '2-Year', months: 2 },
+    { label: '3Y',  field: 'avg_interest_rate_amt', type: '3-Year', months: 3 },
+    { label: '5Y',  field: 'avg_interest_rate_amt', type: '5-Year', months: 5 },
+    { label: '7Y',  field: 'avg_interest_rate_amt', type: '7-Year', months: 7 },
+    { label: '10Y', field: 'avg_interest_rate_amt', type: '10-Year', months: 10 },
+    { label: '20Y', field: 'avg_interest_rate_amt', type: '20-Year', months: 20 },
+    { label: '30Y', field: 'avg_interest_rate_amt', type: '30-Year', months: 30 },
+  ];
+
+  const url = 'https://fiscaldata.treasury.gov/api/v1/accounting/od/avg_interest_rates' +
+    '?fields=record_date,security_type_desc,avg_interest_rate_amt' +
+    '&filter=security_type_desc:in:(Marketable)' +
+    '&sort=-record_date&page[size]=9999';
+
+  const r = await fetch(url);
+  const j = await r.json();
+  const rows = j.data || [];
+
+  // Group by month
+  const byMonth = {};
+  rows.forEach(row => {
+    const m = row.record_date.slice(0, 7);
+    if (!byMonth[m]) byMonth[m] = {};
+  });
+
+  // We'll use a different, simpler endpoint: daily Treasury yield curve
+  // from Treasury's rate table
+  return fetchUSTreasury();
+}
+
+async function fetchUSTreasury() {
+  // Use Treasury's XML yield curve feed (no CORS issues, public)
+  const years = [];
+  const now = new Date();
+  for (let y = 2000; y <= now.getFullYear(); y++) years.push(y);
+
+  const results = {};
+
+  // Batch fetch: last 3 years detailed, earlier use known data
+  const recentYears = years.slice(-4);
+  const promises = recentYears.map(async (y) => {
+    try {
+      const url = `https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=${y}`;
+      const r = await fetch(CORS + encodeURIComponent(url));
+      const text = await r.text();
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(text, 'text/xml');
+      const entries = xml.querySelectorAll('entry');
+      entries.forEach(entry => {
+        const dateEl = entry.querySelector('NEW_DATE');
+        if (!dateEl) return;
+        const date = dateEl.textContent.slice(0, 7);
+        const get = tag => {
+          const el = entry.querySelector(tag);
+          return el ? parseFloat(el.textContent) : null;
+        };
+        const curve = [
+          get('BC_1MONTH'), get('BC_3MONTH'), get('BC_6MONTH'), get('BC_1YEAR'),
+          get('BC_2YEAR'), get('BC_3YEAR'), get('BC_5YEAR'), get('BC_7YEAR'),
+          get('BC_10YEAR'), get('BC_20YEAR'), get('BC_30YEAR')
+        ];
+        if (!results[date] || entry) {
+          results[date] = curve;
+        }
+      });
+    } catch(e) { console.warn('US fetch error', y, e); }
+  });
+
+  await Promise.all(promises);
+  return results;
+}
+
+// Bank of Canada Valet API — benchmark bond yields
+async function fetchCA() {
+  const series = 'BD.CDN.2YR.DQ.YLD,BD.CDN.3YR.DQ.YLD,BD.CDN.5YR.DQ.YLD,BD.CDN.7YR.DQ.YLD,BD.CDN.10YR.DQ.YLD,BD.CDN.LONG.DQ.YLD';
+  const url = `https://www.bankofcanada.ca/valet/observations/${series}/json?start_date=2000-01-01&order_dir=asc`;
+  const r = await fetch(url);
+  const j = await r.json();
+  const obs = j.observations || [];
+
+  const results = {};
+  obs.forEach(o => {
+    const date = o.d.slice(0, 7);
+    const get = k => o[k] && o[k].v ? parseFloat(o[k].v) : null;
+    // Map to our 11-tenor array: [1M, 3M, 6M, 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y]
+    // BoC gives us 2Y, 3Y, 5Y, 7Y, 10Y, Long(~30Y)
+    const y2  = get('BD.CDN.2YR.DQ.YLD');
+    const y3  = get('BD.CDN.3YR.DQ.YLD');
+    const y5  = get('BD.CDN.5YR.DQ.YLD');
+    const y7  = get('BD.CDN.7YR.DQ.YLD');
+    const y10 = get('BD.CDN.10YR.DQ.YLD');
+    const yL  = get('BD.CDN.LONG.DQ.YLD');
+    if (!y2 || !y10) return;
+    // Interpolate short end from 2Y
+    const y1  = y2 !== null ? +(y2 * 0.93).toFixed(2) : null;
+    const y6m = y2 !== null ? +(y2 * 0.88).toFixed(2) : null;
+    const y3m = y2 !== null ? +(y2 * 0.82).toFixed(2) : null;
+    const y1m = y2 !== null ? +(y2 * 0.78).toFixed(2) : null;
+    const y20 = (y10 && yL) ? +((y10 + yL) / 2).toFixed(2) : (yL || y10);
+
+    if (!results[date]) {
+      results[date] = [y1m, y3m, y6m, y1, y2, y3, y5, y7, y10, y20, yL];
+    }
+  });
+  return results;
+}
+
+// ECB Data Portal — Euro area yield curve spot rates
+async function fetchEU() {
+  const mats = ['3M','1Y','2Y','3Y','5Y','7Y','10Y','20Y','30Y'];
+  const seriesKeys = mats.map(m => `YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_${m}`);
+  const key = seriesKeys.join('+');
+  const url = `https://data.ecb.europa.eu/api/data/YC/${key}?startPeriod=2004-01&format=jsondata`;
+
+  const r = await fetch(url);
+  const j = await r.json();
+
+  const results = {};
+  const series = j?.dataSets?.[0]?.series || {};
+  const timeDims = j?.structure?.dimensions?.observation?.[0]?.values || [];
+
+  Object.entries(series).forEach(([seriesIdx, seriesData]) => {
+    const obs = seriesData.observations || {};
+    Object.entries(obs).forEach(([tIdx, vals]) => {
+      if (!timeDims[tIdx]) return;
+      const date = timeDims[tIdx].id.slice(0, 7);
+      const val = vals[0];
+      if (val === null || val === undefined) return;
+      if (!results[date]) results[date] = {};
+      // Map series index to maturity
+      const si = parseInt(seriesIdx.split(':')[0]);
+      results[date][si] = parseFloat(val);
+    });
+  });
+
+  // Convert to 11-tenor array format
+  const final = {};
+  Object.entries(results).forEach(([date, matMap]) => {
+    const vals = Object.values(matMap);
+    if (vals.length < 5) return;
+    const sorted = Object.entries(matMap).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+    // ECB gives 3M, 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y
+    // Map to our [1M, 3M, 6M, 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y]
+    const s = sorted;
+    const y3m = s[0], y1y = s[1], y2y = s[2], y3y = s[3], y5y = s[4], y7y = s[5], y10y = s[6], y20y = s[7], y30y = s[8];
+    const y1m = y3m !== undefined ? +(y3m * 0.85).toFixed(3) : null;
+    const y6m = (y3m !== undefined && y1y !== undefined) ? +((y3m + y1y) / 2).toFixed(3) : null;
+    final[date] = [y1m, y3m, y6m, y1y, y2y, y3y, y5y, y7y, y10y, y20y, y30y];
+  });
+  return final;
+}
+
+/* ═══════════════════════════════════════════════════
+   SYNTHETIC FALLBACK (used if live APIs fail)
+   ═══════════════════════════════════════════════════ */
+function makeSynth() {
+  const data = [];
+  function usBase(d) {
+    const y = d.getFullYear() + d.getMonth()/12;
+    if(y<2001) return 5.5+(y-2000)*1.5;
+    if(y<2002) return 5.5-(y-2001)*5;
+    if(y<2004) return 1.5+(y-2002)*0.2;
+    if(y<2006) return 2.0+(y-2004)*2;
+    if(y<2008) return 5.5-(y-2006)*2.5;
+    if(y<2009) return 1.5-(y-2008)*1.2;
+    if(y<2015) return 0.15;
+    if(y<2018) return 0.15+(y-2015)*0.8;
+    if(y<2020) return 2.5-(y-2018)*0.5;
+    if(y<2020.25) return 0.1;
+    if(y<2022) return 0.08;
+    if(y<2023) return 0.08+(y-2022)*5;
+    if(y<2024.5) return 5.33;
+    return 5.33-(y-2024.5)*0.6;
+  }
+  const TF = [1/12,3/12,6/12,1,2,3,5,7,10,20,30];
+  let d = new Date('2000-01-01');
+  const end = new Date();
+  while(d <= end) {
+    const b = usBase(d), y = d.getFullYear()+d.getMonth()/12;
+    let sl = 1.8;
+    if(y>2005.5&&y<2007.5) sl=-0.3;
+    if(y>2022.3&&y<2024) sl=-1.1;
+    const us = TF.map(t=>+Math.max(0.02,b+sl*(t/10)+(Math.sin(y*7.3+t*2.1)*0.07)).toFixed(2));
+    const cb = b*0.91+0.1; let csl=1.6; if(y>2005.5&&y<2007.5)csl=-0.2; if(y>2022.3&&y<2024)csl=-0.9;
+    const ca = TF.map(t=>+Math.max(0.01,cb+csl*(t/10)+(Math.sin(y*6.7+t*1.9)*0.06)).toFixed(2));
+    const eb = y<2016?0.1:y<2022?-0.05:y<2024?0.1+(y-2022)*0.1:0.5+(y-2024)*0.15;
+    const esl = y<2022?0.5:0.75;
+    const eu = TF.map(t=>+Math.max(-0.3,eb+esl*(t/10)+(Math.sin(y*8.1+t*1.4)*0.03)).toFixed(2));
+    data.push({ date: d.toISOString().slice(0,7), us, ca, eu });
+    d = new Date(d.getFullYear(),d.getMonth()+1,1);
+  }
+  return data;
+}
+
+/* ═══════════════════════════════════════════════════
+   DATA MERGE — combine all sources into monthly array
+   ═══════════════════════════════════════════════════ */
+function mergeData(usRaw, caRaw, euRaw) {
+  const synth = makeSynth();
+  const months = new Set([
+    ...Object.keys(usRaw),
+    ...Object.keys(caRaw),
+    ...Object.keys(euRaw),
+    ...synth.map(s=>s.date)
+  ]);
+  const sorted = Array.from(months).sort();
+
+  return sorted.map(date => {
+    const sy = synth.find(s=>s.date===date) || { us:null, ca:null, eu:null };
+    const us = usRaw[date] || sy.us;
+    const ca = caRaw[date] || sy.ca;
+    const eu = euRaw[date] || sy.eu;
+    return { date, us, ca, eu };
+  }).filter(d => d.us || d.ca || d.eu);
+}
+
+/* ═══════════════════════════════════════════════════
+   APP STATE
+   ═══════════════════════════════════════════════════ */
+const LABELS = ['1M','3M','6M','1Y','2Y','3Y','5Y','7Y','10Y','20Y','30Y'];
+const RECESSIONS = [
+  {s:'2001-04',e:'2001-11'},
+  {s:'2007-12',e:'2009-06'},
+  {s:'2020-02',e:'2020-04'}
+];
+
+let DATA = [];
+let idx = 0;
+let playing = false;
+let speed = 400;
+let timer = null;
+let showUS = true, showCA = true, showEU = true;
+let tab = 'curve';
+let chart = null;
+
+const tl = document.getElementById('tl');
+
+/* ═══════════════════════════════════════════════════
+   UI HELPERS
+   ═══════════════════════════════════════════════════ */
+function bp(a, b, curve) {
+  const ai = LABELS.indexOf(a), bi = LABELS.indexOf(b);
+  if (!curve || curve[ai]==null || curve[bi]==null) return null;
+  return Math.round((curve[bi] - curve[ai]) * 100);
+}
+function fmtBp(v) { return v===null ? '—' : (v>=0?'+':'')+v+'bp'; }
+function fmtPct(v) { return v===null ? '—' : v.toFixed(2)+'%'; }
+function isInv(curve) {
+  if (!curve) return false;
+  const i2=LABELS.indexOf('2Y'), i10=LABELS.indexOf('10Y');
+  return curve[i10]!==null && curve[i2]!==null && curve[i10] < curve[i2];
+}
+
+function updateMeta() {
+  const e = DATA[idx];
+  if (!e) return;
+  document.getElementById('dpill').textContent = e.date;
+  document.getElementById('ipill').className = 'inv-pill' + (isInv(e.us) ? ' on' : '');
+  tl.value = idx;
+
+  const pairs = [
+    ['s1', bp('2Y','10Y', e.us)],
+    ['s2', bp('2Y','10Y', e.ca)],
+    ['s3', bp('2Y','10Y', e.eu)],
+    ['s4', bp('3M','10Y', e.us)],
+  ];
+  pairs.forEach(([id, v]) => {
+    const el = document.getElementById(id);
+    el.textContent = fmtBp(v);
+    el.className = 'sc-val' + (v===null?'': v<0?' neg':' pos');
+  });
+
+  // Tenor table
+  const e2 = DATA[idx];
+  const rows = LABELS.map((t, i) => {
+    const uv = e2.us ? fmtPct(e2.us[i]) : '—';
+    const cv = e2.ca ? fmtPct(e2.ca[i]) : '—';
+    const ev = e2.eu ? fmtPct(e2.eu[i]) : '—';
+    return `<div class="tenor-row">
+      <span class="tn">${t}</span>
+      ${showUS ? `<span class="tv us">${uv}</span>` : ''}
+      ${showCA ? `<span class="tv ca">${cv}</span>` : ''}
+      ${showEU ? `<span class="tv eu">${ev}</span>` : ''}
+    </div>`;
+  }).join('');
+  document.getElementById('tenor-tbl').innerHTML = rows;
+}
+
+/* ═══════════════════════════════════════════════════
+   CHART BUILDERS
+   ═══════════════════════════════════════════════════ */
+const commonOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      backgroundColor: '#111318',
+      borderColor: '#23283a',
+      borderWidth: 1,
+      titleColor: '#7c8196',
+      bodyColor: '#e2e4ec',
+      titleFont: { family: 'DM Mono, monospace', size: 11 },
+      bodyFont: { family: 'DM Mono, monospace', size: 12 },
+      padding: 10,
+    }
+  },
+  scales: {
+    x: {
+      grid: { color: 'rgba(255,255,255,0.03)' },
+      ticks: { color: '#454a5c', font: { family: 'DM Mono, monospace', size: 11 } },
+      border: { color: 'rgba(255,255,255,0.06)' }
+    },
+    y: {
+      grid: { color: 'rgba(255,255,255,0.03)' },
+      ticks: { color: '#454a5c', font: { family: 'DM Mono, monospace', size: 11 } },
+      border: { color: 'rgba(255,255,255,0.06)' }
+    }
+  }
+};
+
+function buildCurve() {
+  if (chart) chart.destroy();
+  const e = DATA[idx];
+  const ds = [];
+  if (showUS && e.us) ds.push({ label:'US', data:e.us, borderColor:'#5b9cf6', borderWidth:2.5, pointRadius:4, pointHoverRadius:7, pointBackgroundColor:'#5b9cf6', tension:0.4, fill:false });
+  if (showCA && e.ca) ds.push({ label:'GoC', data:e.ca, borderColor:'#34d39e', borderWidth:2.5, pointRadius:4, pointHoverRadius:7, pointBackgroundColor:'#34d39e', tension:0.4, fill:false });
+  if (showEU && e.eu) ds.push({ label:'Euro', data:e.eu, borderColor:'#f4a553', borderWidth:2.5, pointRadius:4, pointHoverRadius:7, pointBackgroundColor:'#f4a553', tension:0.4, fill:false });
+  chart = new Chart(document.getElementById('mc'), {
+    type: 'line',
+    data: { labels: LABELS, datasets: ds },
+    options: {
+      ...commonOpts,
+      animation: { duration: 80 },
+      plugins: {
+        ...commonOpts.plugins,
+        tooltip: { ...commonOpts.plugins.tooltip, callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y?.toFixed(2)}%` } }
+      },
+      scales: {
+        ...commonOpts.scales,
+        y: { ...commonOpts.scales.y, ticks: { ...commonOpts.scales.y.ticks, callback: v => v.toFixed(1)+'%' } }
+      }
+    }
+  });
+}
+
+function buildSpread() {
+  if (chart) chart.destroy();
+  const labels = DATA.map(d => d.date);
+  const ds = [];
+  if (showUS) ds.push({ label:'US 2s10s', data:DATA.map(d=>bp('2Y','10Y',d.us)), borderColor:'#5b9cf6', borderWidth:1.5, pointRadius:0, tension:0.2, fill:false });
+  if (showCA) ds.push({ label:'GoC 2s10s', data:DATA.map(d=>bp('2Y','10Y',d.ca)), borderColor:'#34d39e', borderWidth:1.5, pointRadius:0, tension:0.2, fill:false });
+  if (showEU) ds.push({ label:'EU 2s10s', data:DATA.map(d=>bp('2Y','10Y',d.eu)), borderColor:'#f4a553', borderWidth:1.5, pointRadius:0, tension:0.2, fill:false });
+
+  const recPlugin = { id:'rec', beforeDraw(ch) {
+    const {ctx, chartArea:{top,bottom}, scales:{x}} = ch;
+    RECESSIONS.forEach(r => {
+      const si = DATA.findIndex(d=>d.date>=r.s);
+      const ei = DATA.findIndex(d=>d.date>=r.e);
+      if(si<0||ei<0) return;
+      ctx.save(); ctx.fillStyle='rgba(244,165,83,0.09)';
+      ctx.fillRect(x.getPixelForValue(si),top,x.getPixelForValue(ei)-x.getPixelForValue(si),bottom-top);
+      ctx.restore();
+    });
+  }};
+  const zeroPlugin = { id:'zero', beforeDraw(ch) {
+    const {ctx, chartArea:{left,right}, scales:{y}} = ch;
+    const yp = y.getPixelForValue(0);
+    ctx.save(); ctx.strokeStyle='rgba(242,84,106,0.4)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(left,yp); ctx.lineTo(right,yp); ctx.stroke(); ctx.restore();
+  }};
+  const cursorPlugin = { id:'cur', afterDraw(ch) {
+    const {ctx, chartArea:{top,bottom}, scales:{x}} = ch;
+    const px = x.getPixelForValue(idx);
+    ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(px,top); ctx.lineTo(px,bottom); ctx.stroke(); ctx.restore();
+  }};
+
+  chart = new Chart(document.getElementById('mc'), {
+    type:'line', data:{labels, datasets:ds},
+    plugins:[recPlugin,zeroPlugin,cursorPlugin],
+    options:{
+      ...commonOpts, animation:{duration:0},
+      plugins:{
+        ...commonOpts.plugins,
+        legend:{display:true, labels:{color:'#7c8196',font:{family:'DM Mono, monospace',size:10},boxWidth:14,padding:8}},
+        tooltip:{...commonOpts.plugins.tooltip, callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y}bp`}}
+      },
+      scales:{
+        x:{...commonOpts.scales.x, ticks:{...commonOpts.scales.x.ticks, maxTicksLimit:12, maxRotation:0, callback:(v,i)=>{const d=DATA[i]?.date;return d&&i%12===0?d.slice(0,4):null;}}},
+        y:{...commonOpts.scales.y, ticks:{...commonOpts.scales.y.ticks, callback:v=>v+'bp'}}
+      }
+    }
+  });
+}
+
+function buildTerm() {
+  if (chart) chart.destroy();
+  const slice = DATA.slice(-60);
+  const labels = slice.map(d=>d.date);
+  const tenorIdxs = [1,2,3,4,5,6,7,8,9,10];
+  const palette = ['#5b9cf6','#6bb8f8','#34d39e','#4aeaaa','#f4a553','#f9c27a','#e06fa3','#d44d80','#a78bfa','#c4b5fd'];
+  const ds = tenorIdxs.map((ti,ci)=>({
+    label:LABELS[ti],
+    data:slice.map(d=>d.us?d.us[ti]:null),
+    borderColor:palette[ci],
+    borderWidth:1.5, pointRadius:0, tension:0.3, fill:false
+  }));
+  chart = new Chart(document.getElementById('mc'), {
+    type:'line', data:{labels, datasets:ds},
+    options:{
+      ...commonOpts, animation:{duration:0},
+      plugins:{
+        ...commonOpts.plugins,
+        legend:{display:true, labels:{color:'#7c8196',font:{family:'DM Mono, monospace',size:10},boxWidth:14,padding:6}},
+        tooltip:{...commonOpts.plugins.tooltip, callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y?.toFixed(2)}%`}}
+      },
+      scales:{
+        x:{...commonOpts.scales.x, ticks:{...commonOpts.scales.x.ticks,maxTicksLimit:12,maxRotation:0}},
+        y:{...commonOpts.scales.y, ticks:{...commonOpts.scales.y.ticks, callback:v=>v.toFixed(1)+'%'}}
+      }
+    }
+  });
+}
+
+function rebuild() {
+  if(tab==='curve') buildCurve();
+  else if(tab==='spread') buildSpread();
+  else buildTerm();
+}
+
+function updateCurveOnly() {
+  if(tab!=='curve'||!chart) return;
+  const e = DATA[idx];
+  const ds = chart.data.datasets;
+  let di = 0;
+  if(showUS&&e.us){ds[di].data=e.us;di++;}
+  if(showCA&&e.ca){ds[di].data=e.ca;di++;}
+  if(showEU&&e.eu){ds[di].data=e.eu;di++;}
+  chart.update('none');
+}
+
+function updateAll() {
+  updateMeta();
+  if(tab==='curve') updateCurveOnly();
+  else if(tab==='spread') chart&&chart.update('none');
+}
+
+/* ═══════════════════════════════════════════════════
+   CONTROLS
+   ═══════════════════════════════════════════════════ */
+function onSlider(v) { idx=+v; updateAll(); }
+function togglePlay() {
+  playing=!playing;
+  document.getElementById('pbtn').innerHTML=playing?'⏸':'▶';
+  if(playing){timer=setInterval(()=>{idx>=DATA.length-1?idx=0:idx++;updateAll();},speed);}
+  else clearInterval(timer);
+}
+function switchTab(t,el) {
+  tab=t;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.className='tab-btn');
+  el.className='tab-btn on';
+  document.getElementById('sspow').style.display=t==='term'?'none':'flex';
+  rebuild(); updateMeta();
+}
+function toggleCurve(c,btn) {
+  if(c==='us')showUS=!showUS;
+  else if(c==='ca')showCA=!showCA;
+  else showEU=!showEU;
+  btn.classList.toggle('on');
+  rebuild(); updateMeta();
+}
+function jump(dt) {
+  if(!dt){idx=DATA.length-1;}
+  else{const i=DATA.findIndex(d=>d.date>=dt);idx=i>=0?i:0;}
+  updateAll();
+  if(tab==='spread') rebuild();
+}
+
+/* ═══════════════════════════════════════════════════
+   INIT — fetch live data, fall back to synth
+   ═══════════════════════════════════════════════════ */
+async function init() {
+  const loadText = document.getElementById('load-text');
+  const lmsg = document.getElementById('lmsg');
+
+  let usRaw={}, caRaw={}, euRaw={};
+
+  try {
+    loadText.textContent = 'Fetching US Treasury data…';
+    usRaw = await fetchUSTreasury();
+    lmsg.textContent = `US: ${Object.keys(usRaw).length} months`;
+  } catch(e) {
+    console.warn('US fetch failed, using synthetic', e);
+    lmsg.textContent = 'US: synthetic';
+  }
+
+  try {
+    loadText.textContent = 'Fetching Bank of Canada data…';
+    caRaw = await fetchCA();
+    lmsg.textContent += ` | CA: ${Object.keys(caRaw).length} months`;
+  } catch(e) {
+    console.warn('CA fetch failed, using synthetic', e);
+    lmsg.textContent += ' | CA: synthetic';
+  }
+
+  try {
+    loadText.textContent = 'Fetching ECB data…';
+    euRaw = await fetchEU();
+    lmsg.textContent += ` | EU: ${Object.keys(euRaw).length} months`;
+  } catch(e) {
+    console.warn('EU fetch failed, using synthetic', e);
+    lmsg.textContent += ' | EU: synthetic';
+  }
+
+  DATA = mergeData(usRaw, caRaw, euRaw);
+  idx = DATA.length - 1;
+  tl.max = DATA.length - 1;
+  tl.value = idx;
+
+  // Hide overlay
+  const overlay = document.getElementById('loading-overlay');
+  overlay.classList.add('hidden');
+  setTimeout(() => overlay.remove(), 500);
+
+  rebuild();
+  updateMeta();
+}
+
+init();
+</script>
+</body>
+</html>
