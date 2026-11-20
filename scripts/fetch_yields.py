@@ -108,7 +108,7 @@ def fetch_us_fred():
     return daily
 
 
-def fetch_us():
+def fetch_us(first_year=START_YEAR):
     daily = {}
     this_year = date.today().year
     try:
@@ -117,7 +117,7 @@ def fetch_us():
     except RuntimeError as e:
         print("  treasury.gov unreachable, falling back to FRED:", e)
         return fetch_us_fred()
-    for y in range(START_YEAR, this_year):
+    for y in range(first_year, this_year):
         try:
             n = parse_treasury(get(treasury_url(y), tries=2, timeout=30), daily)
             print(f"  US {y}: {n} rows")
@@ -201,7 +201,11 @@ def main():
         with open(OUT) as f:
             prev = json.load(f)
 
-    fetchers = {"us": fetch_us, "ca": fetch_ca, "eu": fetch_eu}
+    # Treasury serves one CSV per year and is slow; after the first full run,
+    # only refresh the current and previous year and keep older history.
+    have_us_history = bool(prev.get("monthly", {}).get("us")) and os.environ.get("FULL") != "1"
+    first_us_year = date.today().year - 1 if have_us_history else START_YEAR
+    fetchers = {"us": lambda: fetch_us(first_us_year), "ca": fetch_ca, "eu": fetch_eu}
     dailies = {}
     for code, fn in fetchers.items():
         print(f"Fetching {code.upper()}")
@@ -238,6 +242,10 @@ def main():
             meta[code]["latest"] = prev.get("meta", {}).get(code, {}).get("latest")
             continue
         monthly_maps[code] = month_end(daily)
+        if code == "us" and have_us_history:
+            old = {m: c for m, c in zip(prev["months"], prev["monthly"]["us"]) if c}
+            old.update(monthly_maps[code])
+            monthly_maps[code] = old
         meta[code]["latest"] = max(daily) if daily else None
     for m in monthly_maps.values():
         all_months.update(m.keys())
