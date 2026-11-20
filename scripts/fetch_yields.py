@@ -60,40 +60,69 @@ US_COLS = {
 }
 
 
+def treasury_url(y):
+    return (
+        "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/"
+        f"daily-treasury-rates.csv/{y}/all?type=daily_treasury_yield_curve"
+        f"&field_tdr_date_value={y}&page&_format=csv"
+    )
+
+
+def parse_treasury(text, daily):
+    rows = list(csv.DictReader(io.StringIO(text)))
+    for row in rows:
+        d = row.get("Date")
+        if not d:
+            continue
+        try:
+            iso = datetime.strptime(d.strip(), "%m/%d/%Y").date().isoformat()
+        except ValueError:
+            continue
+        curve = []
+        for t in TENORS:
+            v = None
+            for col in US_COLS[t]:
+                if col in row:
+                    v = num(row[col])
+                    break
+            curve.append(v)
+        if sum(v is not None for v in curve) >= 6:
+            daily[iso] = curve
+    return len(rows)
+
+
+FRED_IDS = ["DGS1MO", "DGS3MO", "DGS6MO", "DGS1", "DGS2", "DGS3", "DGS5", "DGS7", "DGS10", "DGS20", "DGS30"]
+
+
+def fetch_us_fred():
+    url = ("https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + ",".join(FRED_IDS)
+           + f"&cosd={START_YEAR}-01-01")
+    text = get(url, tries=3, timeout=90)
+    daily = {}
+    for row in csv.DictReader(io.StringIO(text)):
+        d = row.get("observation_date") or row.get("DATE")
+        curve = [num(row.get(i)) for i in FRED_IDS]
+        if d and sum(v is not None for v in curve) >= 6:
+            daily[d] = curve
+    print(f"  US via FRED: {len(daily)} days")
+    return daily
+
+
 def fetch_us():
     daily = {}
     this_year = date.today().year
-    for y in range(START_YEAR, this_year + 1):
-        url = (
-            "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/"
-            f"daily-treasury-rates.csv/{y}/all?type=daily_treasury_yield_curve"
-            f"&field_tdr_date_value={y}&page&_format=csv"
-        )
+    try:
+        n = parse_treasury(get(treasury_url(this_year), tries=1, timeout=25), daily)
+        print(f"  US {this_year}: {n} rows (treasury.gov reachable)")
+    except RuntimeError as e:
+        print("  treasury.gov unreachable, falling back to FRED:", e)
+        return fetch_us_fred()
+    for y in range(START_YEAR, this_year):
         try:
-            text = get(url)
+            n = parse_treasury(get(treasury_url(y), tries=2, timeout=30), daily)
+            print(f"  US {y}: {n} rows")
         except RuntimeError as e:
             print("  US", y, "failed:", e)
-            continue
-        rows = list(csv.DictReader(io.StringIO(text)))
-        for row in rows:
-            d = row.get("Date")
-            if not d:
-                continue
-            try:
-                iso = datetime.strptime(d.strip(), "%m/%d/%Y").date().isoformat()
-            except ValueError:
-                continue
-            curve = []
-            for t in TENORS:
-                v = None
-                for col in US_COLS[t]:
-                    if col in row:
-                        v = num(row[col])
-                        break
-                curve.append(v)
-            if sum(v is not None for v in curve) >= 6:
-                daily[iso] = curve
-        print(f"  US {y}: {len(rows)} rows")
     return daily
 
 
@@ -184,7 +213,7 @@ def main():
 
     meta = {
         "us": {"name": "US Treasury", "short": "US",
-               "source": "U.S. Department of the Treasury, daily par yield curve rates",
+               "source": "U.S. Department of the Treasury, daily par yield curve rates (via FRED when treasury.gov is unreachable)",
                "url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates",
                "note": "Par yields on recently auctioned Treasuries."},
         "ca": {"name": "Government of Canada", "short": "Canada",
